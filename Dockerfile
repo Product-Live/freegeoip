@@ -1,25 +1,30 @@
-FROM golang:1.9
+FROM golang:1.13-alpine AS build
+
+RUN apk --update add git
 
 COPY cmd/freegeoip/public /var/www
 
 ADD . /go/src/github.com/apilayer/freegeoip
-RUN \
-	cd /go/src/github.com/apilayer/freegeoip/cmd/freegeoip && \
-	go get -d && go install && \
-	apt-get update && apt-get install -y libcap2-bin && \
-	setcap cap_net_bind_service=+ep /go/bin/freegeoip && \
-	apt-get clean && rm -rf /var/lib/apt/lists/* && \
-	useradd -ms /bin/bash freegeoip
 
-USER freegeoip
-ENTRYPOINT ["/go/bin/freegeoip"]
+WORKDIR /go/src/github.com/apilayer/freegeoip
+
+RUN go get -u github.com/kardianos/govendor && \
+  govendor sync
+
+WORKDIR /go/src/github.com/apilayer/freegeoip/cmd/freegeoip
+
+RUN go install
+
+FROM alpine:latest
+
+RUN apk --update add bash \
+  && addgroup app \
+  && adduser -D -h /app -G app app
+
+COPY --from=build --chown=app:app /go/bin/freegeoip /app/bin/freegeoip
+
+WORKDIR /app
+USER app
+ENTRYPOINT ["/app/bin/freegeoip"]
 
 EXPOSE 8080
-
-# CMD instructions:
-# Add  "-use-x-forwarded-for"      if your server is behind a reverse proxy
-# Add  "-public", "/var/www"       to enable the web front-end
-# Add  "-internal-server", "8888"  to enable the pprof+metrics server
-#
-# Example:
-# CMD ["-use-x-forwarded-for", "-public", "/var/www", "-internal-server", "8888"]
